@@ -1,4 +1,5 @@
 const Stripe = require('stripe');
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const SITE_URL = 'https://urban-ore-wise-echo-u3dglpc4m7cclvv6g.paged.net';
@@ -10,7 +11,7 @@ const PRODUCTS = {
   'Ensemble T-shirt & Short': 3000,
   'Hoodie Graffiti': 3000,
   'Short Graffiti': 2399,
-  'Short Print': 2000,
+  'Short Print': 2000
 };
 
 module.exports = async (req, res) => {
@@ -27,11 +28,21 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const body = typeof req.body === 'string'
-      ? JSON.parse(req.body)
-      : (req.body || {});
+    let body = req.body;
 
-    const cart = body.cart;
+    // Si Vercel reçoit le corps comme texte
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch {}
+    }
+
+    let cart = body?.cart;
+
+    // Notre site envoie le panier comme une chaîne JSON
+    if (typeof cart === 'string') {
+      cart = JSON.parse(cart);
+    }
 
     if (!Array.isArray(cart) || cart.length === 0) {
       return res.status(400).json({ error: 'Panier vide' });
@@ -56,9 +67,9 @@ module.exports = async (req, res) => {
           product_data: {
             name: `${item.name} — ${item.color} — Taille ${item.size}`
           },
-          unit_amount,
+          unit_amount
         },
-        quantity,
+        quantity
       };
     });
 
@@ -73,37 +84,46 @@ module.exports = async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items,
-
       shipping_address_collection: {
-        allowed_countries: ['FR'],
+        allowed_countries: ['FR']
       },
-
       shipping_options: [
         {
           shipping_rate_data: {
             type: 'fixed_amount',
             fixed_amount: {
               amount: shippingAmount,
-              currency: 'eur',
+              currency: 'eur'
             },
             display_name:
               shippingAmount === 0
                 ? 'Livraison offerte'
-                : 'Livraison',
-          },
-        },
+                : 'Livraison'
+          }
+        }
       ],
-
       success_url: `${SITE_URL}/?paiement=succes`,
-      cancel_url: `${SITE_URL}/?paiement=annule`,
+      cancel_url: `${SITE_URL}/?paiement=annule`
     });
 
-    return res.status(200).json({ url: session.url });
+    // Si le site utilise un formulaire classique,
+    // on redirige directement vers Stripe.
+    const contentType = req.headers['content-type'] || '';
 
-  } catch (e) {
-    console.error(e);
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      return res.redirect(303, session.url);
+    }
+
+    // Sinon, réponse JSON normale
+    return res.status(200).json({
+      url: session.url
+    });
+
+  } catch (error) {
+    console.error(error);
+
     return res.status(400).json({
-      error: e.message || 'Erreur Stripe',
+      error: error.message || 'Erreur Stripe'
     });
   }
 };
